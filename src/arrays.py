@@ -37,6 +37,36 @@ def make_dtype(dtype):
     return _ARRAY_PACKAGE.dtype(dtype)
 
 
+def to_numpy(arr):
+    """Converts the array into a numpy array
+    
+    This may return the original array, or a view of the array data, or a copy of the array
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        raise ImportError("Could not import necessary library 'numpy' for to_numpy() conversion")
+    
+    if isinstance(arr, np.ndarray):
+        return arr
+    
+    try:
+        import cupy
+
+        if isinstance(arr, cupy.ndarray):
+            return cupy.asnumpy(arr)
+    except ImportError:
+        pass
+
+    return np.array(arr)
+    
+
+
+##################
+# Array Creation #
+##################
+
+
 def empty(shape, dtype='int32'):
     """Create an uninitialized array of shape `shape`
     
@@ -76,3 +106,14 @@ def array(obj, dtype=None):
         dtype (Optional[Dtype]): the dtype to use
     """
     return _ARRAY_PACKAGE.array(obj, dtype=dtype)
+
+
+
+######################
+# Inplace Operations #
+######################
+
+
+def fill_inplace(arr, value):
+    """Fills the given array inplace with the given value"""
+    return arr.fill(value)
