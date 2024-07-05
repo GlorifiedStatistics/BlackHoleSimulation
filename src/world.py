@@ -10,6 +10,10 @@ class World:
     """
 
     objects: list[WorldObject] = []
+    """The objects in the world"""
+
+    time: float = 0.0
+    """The current time in the world"""
     
     def __init__(self):
         pass
@@ -18,7 +22,7 @@ class World:
         """Adds the given object to the world"""
         if not isinstance(wo, WorldObject):
             raise TypeError("Can only add objects of type 'WorldObject', not %s" % repr(type(wo).__name__))
-        self.objects.append(WorldObject)
+        self.objects.append(wo)
         return self
     
     def add_objects(self, *objs: WorldObject) -> Self:
@@ -27,6 +31,9 @@ class World:
             self.add_object(obj)
         return self
     
-    def update(self, time: float):
+    def update(self, delta: float):
         """Updates the universe with the given amount of time passing"""
-        pass
+        for wo in self.objects:
+            wo.update(self, delta)
+        self.time += delta
+        

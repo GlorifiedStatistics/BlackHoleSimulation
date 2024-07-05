@@ -108,6 +108,14 @@ def array(obj, dtype=None):
     return _ARRAY_PACKAGE.array(obj, dtype=dtype)
 
 
+def random(shape):
+    """Random floats in range [0, 1] of given shape"""
+    if _ARRAY_PACKAGE.__name__ == 'numpy':
+        return _ARRAY_PACKAGE.random.rand(*shape)
+    else:
+        raise NotImplementedError
+
+
 
 ######################
 # Inplace Operations #
@@ -117,3 +125,24 @@ def array(obj, dtype=None):
 def fill_inplace(arr, value):
     """Fills the given array inplace with the given value"""
     return arr.fill(value)
+
+
+
+################
+# Random Utils #
+################
+
+
+def shape(arr, dim=None):
+    """Returns the shape of the given array along the given dimension
+    
+    Args:
+        arr (Array): the array to get shape of
+        dim (Optional[int]): optional dimension, or None to get full shape
+    """
+    return arr.shape[dim] if dim is not None else arr.shape
+
+
+def count_nonzero(arr):
+    """Counts the number of non-zero elements"""
+    return (arr != 0).astype(int).sum()

@@ -11,3 +11,7 @@ class WorldObject:
         """Change the position of the camera"""
         self.position = (x, y, z)
         return self
+    
+    def update(self, world, delta):
+        """Updates this object in the world"""
+        pass
