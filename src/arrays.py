@@ -1,65 +1,47 @@
 """Allows for switching between different array types/operations"""
-_ARRAY_PACKAGE = None
+from .utils import get_torch_dtype
+
+
+#####################
+# Set Array Package #
+#####################
+
+
+_ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = None, 'None'
 
 def set_array_package(package):
     """Sets the array package to use
     
     Args:
-        package (str): which package to use. Can currently support: 'numpy', 'cupy'
+        package (str): which package to use. Can currently support: 'numpy', 'cupy', 'torch'
     """
-    global _ARRAY_PACKAGE
+    global _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME
     if package in ['numpy', 'np']:
         import numpy
-        _ARRAY_PACKAGE = numpy
+        _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = numpy, 'numpy'
     elif package in ['cupy']:
         import cupy
-        _ARRAY_PACKAGE = cupy
+        _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = cupy, 'cupy'
+    elif package in ['torch']:
+        import torch
+        _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = torch, 'torch'
     else:
         raise ValueError("Unknown array package: %s" % repr(package))
+    
+
+def get_array_package_string():
+    """Returns the string name of the current array package"""
+    return _ARRAY_PACKAGE_NAME
 
 
-for s in ['numpy', 'cupy']:
+for s in ['numpy', 'cupy', 'torch']:
     try:
         set_array_package(s)
         break
     except ImportError:
         pass
 else:
-    raise ImportError("Could not find a valid array package to import")
-
-
-def make_dtype(dtype):
-    """Gets the dtype for the current package
-    
-    Args:
-        dtype (str): the dtype to get
-    """
-    return _ARRAY_PACKAGE.dtype(dtype)
-
-
-def to_numpy(arr):
-    """Converts the array into a numpy array
-    
-    This may return the original array, or a view of the array data, or a copy of the array
-    """
-    try:
-        import numpy as np
-    except ImportError:
-        raise ImportError("Could not import necessary library 'numpy' for to_numpy() conversion")
-    
-    if isinstance(arr, np.ndarray):
-        return arr
-    
-    try:
-        import cupy
-
-        if isinstance(arr, cupy.ndarray):
-            return cupy.asnumpy(arr)
-    except ImportError:
-        pass
-
-    return np.array(arr)
-    
+    raise ImportError("Could not find a valid array package to import")    
 
 
 ##################
@@ -127,6 +109,10 @@ def fill_inplace(arr, value):
     return arr.fill(value)
 
 
+#########################
+# Vectorized Operations #
+
+
 
 ################
 # Random Utils #
@@ -146,3 +132,53 @@ def shape(arr, dim=None):
 def count_nonzero(arr):
     """Counts the number of non-zero elements"""
     return (arr != 0).astype(int).sum()
+
+
+def cast(arr, dtype):
+    """Casts the array to the given dtype"""
+    if get_array_package_string() in ['torch']:
+        return arr.type(get_torch_dtype(dtype))
+    return arr.astype(dtype)
+
+
+def make_dtype(dtype):
+    """Gets the dtype for the current package
+    
+    Args:
+        dtype (str): the dtype to get
+    """
+    if get_array_package_string() in ['torch']:
+        return get_torch_dtype(dtype)
+    return _ARRAY_PACKAGE.dtype(dtype)
+
+
+def to_numpy(arr):
+    """Converts the array into a numpy array
+    
+    This may return the original array, or a view of the array data, or a copy of the array
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        raise ImportError("Could not import necessary library 'numpy' for to_numpy() conversion")
+    
+    if isinstance(arr, np.ndarray):
+        return arr
+    
+    try:
+        import cupy
+
+        if isinstance(arr, cupy.ndarray):
+            return cupy.asnumpy(arr)
+    except ImportError:
+        pass
+
+    try:
+        import torch
+        
+        if isinstance(arr, torch.Tensor):
+            return arr.detach().cpu().numpy()
+    except ImportError:
+        pass
+
+    return np.array(arr)
