@@ -67,18 +67,11 @@ class ConwaysGOLCamera(Camera):
             self.last_update = default_timer()
             
             # Count values in neighborhood and determine new state
-            #t = default_timer()
             dtype = 'float16' if ar.get_array_package_string() in ['torch'] else 'int32'
             nc = ar.cast(ar.convolve2d(ar.cast(self.curr_state, dtype), ar.ones((3, 3), dtype=dtype), padding=0), 'int32')
 
-            #print("T1: %.4f" % (default_timer() - t))
-            #t = default_timer()
-
             new_state = ar.cast(ar.logical_or(ar.logical_and(ar.logical_not(self.curr_state), nc == 3),
                                     ar.logical_and(self.curr_state, ar.logical_and(nc >= 3, nc <= 4))), 'int32')
-
-            #print("T2: %.4f" % (default_timer() - t))
-            #t = default_timer()
 
             # Figure out which cells need updating/drawing. Only append to update list, don't override in case this update 
             #   happens multiple times before a draw
@@ -86,9 +79,6 @@ class ConwaysGOLCamera(Camera):
             updated = ar.argwhere(self.curr_state != new_state)
             self.cell_updates = zip(ar.to_numpy(updated), ar.to_numpy(new_state[updated[:, 0], updated[:, 1]]))
             self.curr_state = new_state
-
-            #print("T3: %.4f" % (default_timer() - t))
-            #t = default_timer()
     
     @ar.array_package_decorator('numpy')
     def draw(self, screen, world):
