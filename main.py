@@ -19,7 +19,7 @@ screen = pygame.display.set_mode([WINDOW_WIDTH, WINDOW_HEIGHT])
 # Set up our world/camera
 ws = 200
 init_state = ar.cast(ar.random((ws, ws)) < 0.4, int)
-cameras = [ConwaysGOLCamera(init_state, array_package='torch')]
+cameras = [ConwaysGOLCamera(init_state, array_package='cupy')]
 world = World().add_objects(*cameras)
 pixels = np.full([WINDOW_WIDTH, WINDOW_HEIGHT], make_RGBA(0, 0, 255, 255), dtype='uint32')
 

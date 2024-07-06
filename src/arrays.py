@@ -1,4 +1,5 @@
 """Allows for switching between different array types/operations"""
+import cupyx.scipy.signal
 from .utils import get_torch_dtype
 from contextlib import contextmanager
 
@@ -196,15 +197,16 @@ def convolve2d(arr, kernel, padding=None):
     if padding is not None and not isinstance(padding, (int, float)):
         raise TypeError("Unknown padding type: %s" % repr(type(padding).__name__))
     
+    
     # For numpy, we have to implement it ourselves
     if _ARRAY_PACKAGE_NAME in ['numpy']:
-        # If we are using a padding
-        if padding is not None:
-            if isinstance(padding, int):
-                arr = padded(arr, (shape(kernel, 0) // 2), (shape(kernel, 1) // 2), padding)
-            else:
-                raise NotImplementedError
-            
+        
+        # Deal with padding
+        if isinstance(padding, (int, float)):
+            arr = padded(arr, (shape(kernel, 0) // 2), (shape(kernel, 1) // 2), padding)
+        elif padding is not None:
+            raise NotImplementedError
+
         # Taken from: https://stackoverflow.com/questions/43086557/convolve2d-just-by-using-numpy
         s = shape(kernel) + tuple(_ARRAY_PACKAGE.subtract(shape(arr), shape(kernel)) + 1)
         strd = _ARRAY_PACKAGE.lib.stride_tricks.as_strided
@@ -213,13 +215,31 @@ def convolve2d(arr, kernel, padding=None):
     
     elif _ARRAY_PACKAGE_NAME in ['torch']:
         import torch
+
+        # Deal with padding
         if isinstance(padding, (int, float)) and padding != 0:
             arr = padded(arr, (shape(kernel, 0) // 2), (shape(kernel, 1) // 2), padding)
-
+        elif padding not in [0, None]:
+            raise NotImplementedError
+        
         padding = 'same' if padding == 0 else 'valid'
         return torch.nn.functional.conv2d(set_gpu_device(arr.unsqueeze(0).unsqueeze(0)), 
             set_gpu_device(kernel.unsqueeze(0).unsqueeze(0)), padding=padding)[0][0]
     
+    elif _ARRAY_PACKAGE_NAME in ['cupy']:
+        import cupyx
+
+        # Deal with padding
+        fill_value = padding
+        boundary = 'fill'
+        if isinstance(padding, (int, float)):
+            mode = 'same'
+        elif padding is None:
+            mode = 'valid'
+        else:
+            raise NotImplementedError
+
+        return cupyx.scipy.signal.convolve2d(arr, kernel, mode=mode, boundary=boundary, fillvalue=fill_value)
     else:
         raise NotImplementedError
     
@@ -303,8 +323,6 @@ def set_gpu_device(arr, device=None):
     
     if get_array_package_string() in ['torch']:
         return arr.to(device)
-    elif get_array_package_string() in ['cupy']:
-        raise NotImplementedError
     else:
         return arr
 
