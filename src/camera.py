@@ -61,7 +61,6 @@ class ConwaysGOLCamera(Camera):
     
     @ar.array_package_decorator('numpy')
     def draw(self, screen, world):
-        print(ar.get_array_package_string(), type(screen), len(self.cell_updates), self.cell_updates[0] if len(self.cell_updates) > 0 else None)
         line_thickness = 0
         background_color = make_RGBA(20, 20, 20, 255)
         line_color = make_RGBA(230, 230, 230, 255)

@@ -13,8 +13,8 @@ ar.set_array_package('numpy')
 pygame.init()
 
 # Set up the drawing window
-WINDOW_WIDTH = 1600
-WINDOW_HEIGHT = 1000
+WINDOW_WIDTH = 1800
+WINDOW_HEIGHT = 1200
 screen = pygame.display.set_mode([WINDOW_WIDTH, WINDOW_HEIGHT])
 
 # Set up our world/camera
@@ -25,7 +25,7 @@ world = World().add_objects(*cameras)
 pixels = np.full([WINDOW_WIDTH, WINDOW_HEIGHT], make_RGBA(0, 0, 255, 255), dtype='uint32')
 
 # Handle time between updates
-print_timings = True
+print_timings = False
 last_time = default_timer()
 
 running = True
