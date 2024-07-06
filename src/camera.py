@@ -32,64 +32,65 @@ class ConwaysGOLCamera(Camera):
     start_state: `array`
         2d Array of board start state. Should have 1's in living cells, 0's in dead
     """
-    def __init__(self, start_state):
-        self.curr_state = start_state
-        self.update_time = 0.1  # Time to update board
-        self.last_update = default_timer()
-        self.tested = False
+    def __init__(self, start_state, array_package='numpy'):
+        self.array_package = array_package
+        with ar.array_package_context(self.array_package):
+            self.curr_state = ar.array(start_state, dtype='int32')
+            self.cell_updates = []
+            self.update_time = 0.01  # Time to update board
+            self.last_update = default_timer()
+            self.screen_drawn = False
     
     def update(self, world, delta):
-        if default_timer() - self.last_update < self.update_time or self.tested:
-            return
-        self.last_update = default_timer()
-        
-        new_state = ar.zeros(ar.shape(self.curr_state))
+        with ar.array_package_context(self.array_package):
+            if default_timer() - self.last_update < self.update_time:
+                return
+            self.last_update = default_timer()
+            
+            # Count values in neighborhood and determine new state
+            nc = ar.convolve2d(self.curr_state, ar.ones((3, 3), dtype='int32'), padding=0)
+            new_state = ar.cast(ar.logical_or(ar.logical_and(ar.logical_not(self.curr_state), nc == 3),
+                                    ar.logical_and(self.curr_state, ar.logical_and(nc >= 3, nc <= 4))), 'int32')
 
-        for r in range(ar.shape(self.curr_state, 0)):
-            for c in range(ar.shape(self.curr_state, 1)):
-                chunk = self.curr_state[max(r-1, 0):min(r+2, ar.shape(self.curr_state, 0)), max(c-1, 0):min(c+2, ar.shape(self.curr_state, 1))]
-                num_alive = ar.count_nonzero(chunk)
-
-                # If this cell is alive
-                if self.curr_state[r, c] > 0:
-                    
-                    # If there are < 2 neighbors, or > 3 neighbors, dead, otherwise alive
-                    val = 3 <= num_alive <= 4
-
-                # If this cell is dead
-                elif self.curr_state[r, c] <= 0:
-                    # if there are 3 alive in chunk (all must be neighbors), make alive
-                    val = num_alive == 3
-                
-                new_state[r, c] = val
-        
-        self.curr_state = new_state
+            # Figure out which cells need updating/drawing. Only append to update list, don't override in case this update 
+            #   happens multiple times before a draw
+            # We convert to numpy here because torch's tensors are suuuuuupppperr slow when getting and using individual values
+            update_state = ar.to_numpy(new_state)
+            self.cell_updates += [(r, c, update_state[r, c]) for r, c in ar.to_numpy(ar.argwhere(self.curr_state != new_state))]
+            self.curr_state = new_state
     
+    @ar.array_package_decorator('numpy')
     def draw(self, screen, world):
-        line_thickness = 2
+        print(ar.get_array_package_string(), type(screen), len(self.cell_updates), self.cell_updates[0] if len(self.cell_updates) > 0 else None)
+        line_thickness = 0
         background_color = make_RGBA(20, 20, 20, 255)
         line_color = make_RGBA(230, 230, 230, 255)
         alive_color = make_RGBA(200, 200, 10, 255)
 
-        screen_size = min(ar.shape(screen, 0), ar.shape(screen, 1)) - 2*line_thickness
+        # Full screen is square in middle, with some empty padding around edges (based on line thickness)
+        screen_size = min(ar.shape(screen, 0), ar.shape(screen, 1)) - 2 * line_thickness
 
-        board_start = int((ar.shape(screen, 0) - screen_size) / 2), int((ar.shape(screen, 1) - screen_size) / 2)
+        # Size of each cell on the screen, rounded down
+        cell_size = int((screen_size - max(ar.shape(self.curr_state)) * line_thickness) / max(ar.shape(self.curr_state)))
 
-        # Draw the inside to be white
-        ar.fill_inplace(screen, background_color)
-        draw_rect(screen, board_start, screen_size+line_thickness, screen_size+line_thickness, line_color)
+        # Compute the padding along the top/bottom
+        board_size = (ar.shape(self.curr_state, 0) * (line_thickness + cell_size) + line_thickness,
+                    ar.shape(self.curr_state, 1) * (line_thickness + cell_size) + line_thickness)
+        board_start = ((ar.shape(screen, 0) - board_size[0]) // 2, (ar.shape(screen, 1) - board_size[1]) // 2)
 
-        cell_size = int((screen_size - ar.shape(self.curr_state, 0) * line_thickness) / ar.shape(self.curr_state, 0))
-
-        # Draw all the squares
-        for r in range(ar.shape(self.curr_state, 0)):
-            for c in range(ar.shape(self.curr_state, 1)):
-                loc = (line_thickness + r * (line_thickness + cell_size) + board_start[0]), \
-                    (line_thickness + c * (line_thickness + cell_size) + board_start[1])
-                color = alive_color if self.curr_state[c, r] > 0 else background_color  # This is reversed in lookup
-                draw_rect(screen, loc, cell_size, cell_size, color)
+        # Draw the background and cell boundaries if they haven't been drawn yet
+        if not self.screen_drawn:
+            ar.fill_inplace(screen, background_color)
+            for r in range(ar.shape(self.curr_state, 0) + 1):
+                screen[board_start[0]+(cell_size+line_thickness)*r:board_start[0]+(cell_size+line_thickness)*r+line_thickness, board_start[1]:board_start[1] + board_size[1]] = line_color
+            for c in range(ar.shape(self.curr_state, 1) + 1):
+                screen[board_start[0]:board_start[0] + board_size[0], board_start[1]+(cell_size+line_thickness)*c:board_start[1]+(cell_size+line_thickness)*c+line_thickness] = line_color
+            self.screen_drawn = True
         
-        # Re-draw some black
-        val = ar.shape(self.curr_state, 0) * (line_thickness + cell_size) + line_thickness
-        draw_rect(screen, (board_start[0] + val, board_start[1]), screen_size+line_thickness, screen_size+line_thickness, background_color)
-        draw_rect(screen, (board_start[0], val + board_start[1]), screen_size+line_thickness, screen_size+line_thickness, background_color)
+        # Draw all of the cells
+        for r, c, state in self.cell_updates:
+            color = alive_color if state > 0 else background_color
+            screen[board_start[0]+(cell_size+line_thickness)*r+line_thickness:board_start[0]+(cell_size+line_thickness)*r+line_thickness+cell_size,
+                    board_start[1]+(cell_size+line_thickness)*c+line_thickness:board_start[1]+(cell_size+line_thickness)*c+line_thickness+cell_size] = color
+        
+        self.cell_updates = []

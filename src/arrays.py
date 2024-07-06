@@ -1,5 +1,6 @@
 """Allows for switching between different array types/operations"""
 from .utils import get_torch_dtype
+from contextlib import contextmanager
 
 
 #####################
@@ -14,8 +15,15 @@ def set_array_package(package):
     
     Args:
         package (str): which package to use. Can currently support: 'numpy', 'cupy', 'torch'
+    
+    Returns:
+        Union[None, str]: None if this is the first call to set_array_package, otherwise string
+            name of the old package this was before overwriting
     """
     global _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME
+
+    ret_val = None if _ARRAY_PACKAGE is None else _ARRAY_PACKAGE_NAME
+
     if package in ['numpy', 'np']:
         import numpy
         _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = numpy, 'numpy'
@@ -28,6 +36,26 @@ def set_array_package(package):
     else:
         raise ValueError("Unknown array package: %s" % repr(package))
     
+    return ret_val
+
+
+@contextmanager
+def array_package_context(package):
+    """Context manager to set array package temporarily"""
+    old_package = set_array_package(package)
+    yield
+    set_array_package(old_package)
+
+
+def array_package_decorator(package):
+    """Decorate a function to set the array package while within that function"""
+    def wrap(func):
+        def new_func(*args, **kwargs):
+            with array_package_context(package):
+                func(*args, **kwargs)
+        return new_func
+    return wrap
+
 
 def get_array_package_string():
     """Returns the string name of the current array package"""
@@ -56,7 +84,7 @@ def empty(shape, dtype='int32'):
         shape (Iterable[int]): dimensions of empty array
         dtype (Dtype): the dtype to use, defaults to int32
     """
-    return _ARRAY_PACKAGE.zeros(shape, dtype=make_dtype(dtype))
+    return _ARRAY_PACKAGE.empty(tuple(shape), dtype=make_dtype(dtype))
 
 
 def zeros(shape, dtype='int32'):
@@ -66,7 +94,17 @@ def zeros(shape, dtype='int32'):
         shape (Iterable[int]): dimensions of empty array
         dtype (Dtype): the dtype to use, defaults to int32
     """
-    return _ARRAY_PACKAGE.zeros(shape, dtype=make_dtype(dtype))
+    return _ARRAY_PACKAGE.zeros(tuple(shape), dtype=make_dtype(dtype))
+
+
+def ones(shape, dtype='int32'):
+    """Create an array of shape `shape` filled with ones
+    
+    Args:
+        shape (Iterable[int]): dimensions of empty array
+        dtype (Dtype): the dtype to use, defaults to int32
+    """
+    return _ARRAY_PACKAGE.ones(tuple(shape), dtype=make_dtype(dtype))
 
 
 def full(shape, value, dtype=None):
@@ -77,7 +115,7 @@ def full(shape, value, dtype=None):
         value (Union[int, float, str]): the value to fill the array with
         dtype (Optional[Dtype]): the dtype to use
     """
-    return _ARRAY_PACKAGE.full(shape, value, dtype=dtype)
+    return _ARRAY_PACKAGE.full(tuple(shape), value, dtype=make_dtype(dtype))
 
 
 def array(obj, dtype=None):
@@ -87,16 +125,31 @@ def array(obj, dtype=None):
         obj (ArrayLike): the object to make into an array
         dtype (Optional[Dtype]): the dtype to use
     """
-    return _ARRAY_PACKAGE.array(obj, dtype=dtype)
+    if _ARRAY_PACKAGE_NAME in ['torch']:
+        return _ARRAY_PACKAGE.tensor(obj, dtype=make_dtype(dtype))
+    return _ARRAY_PACKAGE.array(obj, dtype=make_dtype(dtype))
 
 
 def random(shape):
     """Random floats in range [0, 1] of given shape"""
-    if _ARRAY_PACKAGE.__name__ == 'numpy':
+    shape = tuple(shape)
+
+    if _ARRAY_PACKAGE_NAME in ['numpy']:
         return _ARRAY_PACKAGE.random.rand(*shape)
+    elif _ARRAY_PACKAGE_NAME in ['torch']:
+        return _ARRAY_PACKAGE.rand(shape)
     else:
         raise NotImplementedError
 
+
+def padded(arr, n_rows, n_cols, pad_val):
+    """Pads the given array with the number of rows/cols filled with pad_val"""
+    if ndim(arr) != 2:
+        raise ValueError("Can only pad 2-d arrays")
+    
+    ret = full((shape(arr, 0) + 2*n_rows, shape(arr, 1) + 2*n_cols), pad_val)
+    ret[n_rows:-n_rows, n_cols:-n_cols] = arr
+    return ret
 
 
 ######################
@@ -111,7 +164,82 @@ def fill_inplace(arr, value):
 
 #########################
 # Vectorized Operations #
+#########################
 
+
+def argwhere(arr):
+    """Returns the places where arr is True"""
+    return _ARRAY_PACKAGE.argwhere(arr)
+
+
+def convolve2d(arr, kernel, padding=None):
+    """Performs a 2d convolution of kernel on arr
+    
+    Args:
+        arr (Array): the array
+        kernel (Array): the kernel to use. Should have odd side lengths
+        passing (Union[str, int, None]): The padding to use. Can be:
+
+            - None: use no padding, new shape will be smaller
+            - int: value to use for padding
+    """
+    if ndim(arr) != 2 or ndim(kernel) != 2:
+        raise ValueError("Can only perform convolve2d on 2-d arrays. Shapes: %s and %s" % (shape(arr), shape(kernel)))
+    if shape(kernel, 0) % 2 != 1 or shape(kernel, 1) % 2 != 1:
+        raise ValueError("Can only do convolution with odd-lengthed kernel. Kernel shape: %s" % (shape(kernel),))
+    if padding is not None and not isinstance(padding, (int, float)):
+        raise TypeError("Unknown padding type: %s" % repr(type(padding).__name__))
+    
+    # For numpy, we have to implement it ourselves
+    if _ARRAY_PACKAGE_NAME in ['numpy']:
+        # If we are using a padding
+        if padding is not None:
+            if isinstance(padding, int):
+                arr = padded(arr, (shape(kernel, 0) // 2), (shape(kernel, 1) // 2), padding)
+            else:
+                raise NotImplementedError
+            
+        # Taken from: https://stackoverflow.com/questions/43086557/convolve2d-just-by-using-numpy
+        s = shape(kernel) + tuple(_ARRAY_PACKAGE.subtract(shape(arr), shape(kernel)) + 1)
+        strd = _ARRAY_PACKAGE.lib.stride_tricks.as_strided
+        subM = strd(arr, shape=s, strides=arr.strides * 2)
+        return _ARRAY_PACKAGE.einsum('ij,ijkl->kl', kernel, subM)
+    
+    elif _ARRAY_PACKAGE_NAME in ['torch']:
+        import torch
+        if isinstance(padding, (int, float)) and padding != 0:
+            arr = padded(arr, (shape(kernel, 0) // 2), (shape(kernel, 1) // 2), padding)
+
+        padding = 'same' if padding == 0 else 'valid'
+        return torch.nn.functional.conv2d(arr.unsqueeze(0).unsqueeze(0), kernel.unsqueeze(0).unsqueeze(0), padding=padding)[0][0]
+    
+    else:
+        raise NotImplementedError
+    
+
+######################
+# Logical Operations #
+######################
+
+
+def logical_not(arr):
+    """Returns ~arr"""
+    return _ARRAY_PACKAGE.logical_not(arr)
+
+
+def logical_and(arr1, arr2):
+    """Returns arr1 & arr2"""
+    return _ARRAY_PACKAGE.logical_and(arr1, arr2)
+
+
+def logical_or(arr1, arr2):
+    """Returns arr1 | arr2"""
+    return _ARRAY_PACKAGE.logical_or(arr1, arr2)
+
+
+def logical_xor(arr1, arr2):
+    """Returns arr1 ^ arr2"""
+    return _ARRAY_PACKAGE.logical_xor(arr1, arr2)
 
 
 ################
@@ -150,6 +278,16 @@ def make_dtype(dtype):
     if get_array_package_string() in ['torch']:
         return get_torch_dtype(dtype)
     return _ARRAY_PACKAGE.dtype(dtype)
+
+
+def ndim(arr):
+    "Returns the number of dimensions in the given array"
+    return arr.ndim
+
+
+def dtype(arr):
+    """Returns the dtype of arr"""
+    return arr.dtype
 
 
 def to_numpy(arr):
