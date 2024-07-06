@@ -9,20 +9,23 @@ from contextlib import contextmanager
 
 
 _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = None, 'None'
+_CUDA_DEVICE = None
 
 def set_array_package(package):
     """Sets the array package to use
     
     Args:
-        package (str): which package to use. Can currently support: 'numpy', 'cupy', 'torch'
+        package (str): which package to use. Can currently support: 'numpy', 'cupy', 'torch', 'torch-cpu', 'torch-gpu'
     
     Returns:
         Union[None, str]: None if this is the first call to set_array_package, otherwise string
             name of the old package this was before overwriting
     """
-    global _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME
+    global _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME, _CUDA_DEVICE
 
     ret_val = None if _ARRAY_PACKAGE is None else _ARRAY_PACKAGE_NAME
+
+    package = package.lower().replace('_', '-')
 
     if package in ['numpy', 'np']:
         import numpy
@@ -30,9 +33,10 @@ def set_array_package(package):
     elif package in ['cupy']:
         import cupy
         _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = cupy, 'cupy'
-    elif package in ['torch']:
+    elif package in ['torch', 'torch-cpu', 'torch-gpu']:
         import torch
         _ARRAY_PACKAGE, _ARRAY_PACKAGE_NAME = torch, 'torch'
+        _CUDA_DEVICE = 'cuda:0' if package == 'torch-gpu' or (package != 'torch-cpu' and torch.cuda.is_available()) else 'cpu'
     else:
         raise ValueError("Unknown array package: %s" % repr(package))
     
@@ -42,9 +46,11 @@ def set_array_package(package):
 @contextmanager
 def array_package_context(package):
     """Context manager to set array package temporarily"""
-    old_package = set_array_package(package)
-    yield
-    set_array_package(old_package)
+    try:
+        old_package = set_array_package(package)
+        yield
+    finally:
+        set_array_package(old_package)
 
 
 def array_package_decorator(package):
@@ -84,7 +90,7 @@ def empty(shape, dtype='int32'):
         shape (Iterable[int]): dimensions of empty array
         dtype (Dtype): the dtype to use, defaults to int32
     """
-    return _ARRAY_PACKAGE.empty(tuple(shape), dtype=make_dtype(dtype))
+    return set_gpu_device(_ARRAY_PACKAGE.empty(tuple(shape), dtype=make_dtype(dtype)))
 
 
 def zeros(shape, dtype='int32'):
@@ -94,7 +100,7 @@ def zeros(shape, dtype='int32'):
         shape (Iterable[int]): dimensions of empty array
         dtype (Dtype): the dtype to use, defaults to int32
     """
-    return _ARRAY_PACKAGE.zeros(tuple(shape), dtype=make_dtype(dtype))
+    return set_gpu_device(_ARRAY_PACKAGE.zeros(tuple(shape), dtype=make_dtype(dtype)))
 
 
 def ones(shape, dtype='int32'):
@@ -104,7 +110,7 @@ def ones(shape, dtype='int32'):
         shape (Iterable[int]): dimensions of empty array
         dtype (Dtype): the dtype to use, defaults to int32
     """
-    return _ARRAY_PACKAGE.ones(tuple(shape), dtype=make_dtype(dtype))
+    return set_gpu_device(_ARRAY_PACKAGE.ones(tuple(shape), dtype=make_dtype(dtype)))
 
 
 def full(shape, value, dtype=None):
@@ -115,7 +121,7 @@ def full(shape, value, dtype=None):
         value (Union[int, float, str]): the value to fill the array with
         dtype (Optional[Dtype]): the dtype to use
     """
-    return _ARRAY_PACKAGE.full(tuple(shape), value, dtype=make_dtype(dtype))
+    return set_gpu_device(_ARRAY_PACKAGE.full(tuple(shape), value, dtype=make_dtype(dtype)))
 
 
 def array(obj, dtype=None):
@@ -126,7 +132,7 @@ def array(obj, dtype=None):
         dtype (Optional[Dtype]): the dtype to use
     """
     if _ARRAY_PACKAGE_NAME in ['torch']:
-        return _ARRAY_PACKAGE.tensor(obj, dtype=make_dtype(dtype))
+        return set_gpu_device(_ARRAY_PACKAGE.tensor(obj, dtype=make_dtype(dtype)))
     return _ARRAY_PACKAGE.array(obj, dtype=make_dtype(dtype))
 
 
@@ -137,7 +143,7 @@ def random(shape):
     if _ARRAY_PACKAGE_NAME in ['numpy']:
         return _ARRAY_PACKAGE.random.rand(*shape)
     elif _ARRAY_PACKAGE_NAME in ['torch']:
-        return _ARRAY_PACKAGE.rand(shape)
+        return set_gpu_device(_ARRAY_PACKAGE.rand(shape))
     else:
         raise NotImplementedError
 
@@ -149,7 +155,7 @@ def padded(arr, n_rows, n_cols, pad_val):
     
     ret = full((shape(arr, 0) + 2*n_rows, shape(arr, 1) + 2*n_cols), pad_val)
     ret[n_rows:-n_rows, n_cols:-n_cols] = arr
-    return ret
+    return set_gpu_device(ret)
 
 
 ######################
@@ -159,7 +165,7 @@ def padded(arr, n_rows, n_cols, pad_val):
 
 def fill_inplace(arr, value):
     """Fills the given array inplace with the given value"""
-    return arr.fill(value)
+    return set_gpu_device(arr.fill(value))
 
 
 #########################
@@ -169,7 +175,7 @@ def fill_inplace(arr, value):
 
 def argwhere(arr):
     """Returns the places where arr is True"""
-    return _ARRAY_PACKAGE.argwhere(arr)
+    return set_gpu_device(_ARRAY_PACKAGE.argwhere(arr))
 
 
 def convolve2d(arr, kernel, padding=None):
@@ -211,7 +217,8 @@ def convolve2d(arr, kernel, padding=None):
             arr = padded(arr, (shape(kernel, 0) // 2), (shape(kernel, 1) // 2), padding)
 
         padding = 'same' if padding == 0 else 'valid'
-        return torch.nn.functional.conv2d(arr.unsqueeze(0).unsqueeze(0), kernel.unsqueeze(0).unsqueeze(0), padding=padding)[0][0]
+        return torch.nn.functional.conv2d(set_gpu_device(arr.unsqueeze(0).unsqueeze(0)), 
+            set_gpu_device(kernel.unsqueeze(0).unsqueeze(0)), padding=padding)[0][0]
     
     else:
         raise NotImplementedError
@@ -224,22 +231,22 @@ def convolve2d(arr, kernel, padding=None):
 
 def logical_not(arr):
     """Returns ~arr"""
-    return _ARRAY_PACKAGE.logical_not(arr)
+    return set_gpu_device(_ARRAY_PACKAGE.logical_not(arr))
 
 
 def logical_and(arr1, arr2):
     """Returns arr1 & arr2"""
-    return _ARRAY_PACKAGE.logical_and(arr1, arr2)
+    return set_gpu_device(_ARRAY_PACKAGE.logical_and(arr1, arr2))
 
 
 def logical_or(arr1, arr2):
     """Returns arr1 | arr2"""
-    return _ARRAY_PACKAGE.logical_or(arr1, arr2)
+    return set_gpu_device(_ARRAY_PACKAGE.logical_or(arr1, arr2))
 
 
 def logical_xor(arr1, arr2):
     """Returns arr1 ^ arr2"""
-    return _ARRAY_PACKAGE.logical_xor(arr1, arr2)
+    return set_gpu_device(_ARRAY_PACKAGE.logical_xor(arr1, arr2))
 
 
 ################
@@ -265,7 +272,7 @@ def count_nonzero(arr):
 def cast(arr, dtype):
     """Casts the array to the given dtype"""
     if get_array_package_string() in ['torch']:
-        return arr.type(get_torch_dtype(dtype))
+        return set_gpu_device(arr.type(get_torch_dtype(dtype)))
     return arr.astype(dtype)
 
 
@@ -288,6 +295,18 @@ def ndim(arr):
 def dtype(arr):
     """Returns the dtype of arr"""
     return arr.dtype
+
+
+def set_gpu_device(arr, device=None):
+    """Sends the given array to the default gpu device. Does nothing if using a non-gpu array package"""
+    device = _CUDA_DEVICE if device is None else device
+    
+    if get_array_package_string() in ['torch']:
+        return arr.to(device)
+    elif get_array_package_string() in ['cupy']:
+        raise NotImplementedError
+    else:
+        return arr
 
 
 def to_numpy(arr):

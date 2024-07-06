@@ -1,6 +1,5 @@
 import pygame
 import src.arrays as ar
-import torch
 import numpy as np
 from timeit import default_timer
 from src.utils import make_RGBA
@@ -13,8 +12,8 @@ ar.set_array_package('numpy')
 pygame.init()
 
 # Set up the drawing window
-WINDOW_WIDTH = 1800
-WINDOW_HEIGHT = 1200
+WINDOW_WIDTH = 1600
+WINDOW_HEIGHT = 1000
 screen = pygame.display.set_mode([WINDOW_WIDTH, WINDOW_HEIGHT])
 
 # Set up our world/camera

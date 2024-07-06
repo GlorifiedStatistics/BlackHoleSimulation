@@ -24,6 +24,24 @@ class Camera(WorldObject):
         pass
 
 
+class RayTracingCamera(Camera):
+    """Camera that performs ray tracing
+    
+    Parameters
+    ----------
+    position: `Optional[tuple[float, float, float]]`
+        Optional initial position of the camera in 3D space. If not passed, defaults to (0, 0, 0)
+    """
+    def __init__(self, position: Optional[tuple[float, float, float]] = None):
+        super().__init__()
+        self.set_position(*position)
+
+    def draw(self, screen, world):
+        """Draws what the camera currently sees to the given screen"""
+        pass
+
+
+
 class ConwaysGOLCamera(Camera):
     """Plays conway's game of life
     
@@ -36,28 +54,41 @@ class ConwaysGOLCamera(Camera):
         self.array_package = array_package
         with ar.array_package_context(self.array_package):
             self.curr_state = ar.array(start_state, dtype='int32')
-            self.cell_updates = []
+            self.cell_updates = None
             self.update_time = 0.01  # Time to update board
             self.last_update = default_timer()
             self.screen_drawn = False
     
-    def update(self, world, delta):
+    def update(self, world, delta, force_update=False):
         with ar.array_package_context(self.array_package):
-            if default_timer() - self.last_update < self.update_time:
+            # Only update if either we are forcing it, or enough time has passed and we have drawn the previous updates
+            if not force_update and default_timer() - self.last_update < self.update_time and self.cell_updates is None:
                 return
             self.last_update = default_timer()
             
             # Count values in neighborhood and determine new state
-            nc = ar.convolve2d(self.curr_state, ar.ones((3, 3), dtype='int32'), padding=0)
+            #t = default_timer()
+            dtype = 'float16' if ar.get_array_package_string() in ['torch'] else 'int32'
+            nc = ar.cast(ar.convolve2d(ar.cast(self.curr_state, dtype), ar.ones((3, 3), dtype=dtype), padding=0), 'int32')
+
+            #print("T1: %.4f" % (default_timer() - t))
+            #t = default_timer()
+
             new_state = ar.cast(ar.logical_or(ar.logical_and(ar.logical_not(self.curr_state), nc == 3),
                                     ar.logical_and(self.curr_state, ar.logical_and(nc >= 3, nc <= 4))), 'int32')
+
+            #print("T2: %.4f" % (default_timer() - t))
+            #t = default_timer()
 
             # Figure out which cells need updating/drawing. Only append to update list, don't override in case this update 
             #   happens multiple times before a draw
             # We convert to numpy here because torch's tensors are suuuuuupppperr slow when getting and using individual values
-            update_state = ar.to_numpy(new_state)
-            self.cell_updates += [(r, c, update_state[r, c]) for r, c in ar.to_numpy(ar.argwhere(self.curr_state != new_state))]
+            updated = ar.argwhere(self.curr_state != new_state)
+            self.cell_updates = zip(ar.to_numpy(updated), ar.to_numpy(new_state[updated[:, 0], updated[:, 1]]))
             self.curr_state = new_state
+
+            #print("T3: %.4f" % (default_timer() - t))
+            #t = default_timer()
     
     @ar.array_package_decorator('numpy')
     def draw(self, screen, world):
@@ -87,9 +118,10 @@ class ConwaysGOLCamera(Camera):
             self.screen_drawn = True
         
         # Draw all of the cells
-        for r, c, state in self.cell_updates:
-            color = alive_color if state > 0 else background_color
-            screen[board_start[0]+(cell_size+line_thickness)*r+line_thickness:board_start[0]+(cell_size+line_thickness)*r+line_thickness+cell_size,
-                    board_start[1]+(cell_size+line_thickness)*c+line_thickness:board_start[1]+(cell_size+line_thickness)*c+line_thickness+cell_size] = color
+        if self.cell_updates is not None:
+            for (r, c), state in self.cell_updates:
+                color = alive_color if state > 0 else background_color
+                screen[board_start[0]+(cell_size+line_thickness)*r+line_thickness:board_start[0]+(cell_size+line_thickness)*r+line_thickness+cell_size,
+                        board_start[1]+(cell_size+line_thickness)*c+line_thickness:board_start[1]+(cell_size+line_thickness)*c+line_thickness+cell_size] = color
         
-        self.cell_updates = []
+            self.cell_updates = None
