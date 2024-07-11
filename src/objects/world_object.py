@@ -15,3 +15,7 @@ class WorldObject:
     def update(self, world, delta):
         """Updates this object in the world"""
         pass
+
+    def distance(self, ray_start, ray_end):
+        """Computes the distance between a ray and this object, returning -1 if it never hits"""
+        raise NotImplementedError

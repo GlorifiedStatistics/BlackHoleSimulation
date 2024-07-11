@@ -179,6 +179,13 @@ def argwhere(arr):
     return set_gpu_device(_ARRAY_PACKAGE.argwhere(arr))
 
 
+def dot(arr1, arr2):
+    """Returns the dot product of the two vectors"""
+    if ndim(arr1) != 1 or ndim(arr2) != 1:
+        raise ValueError("Can only do dot product on 1-d vectors!")
+    return _ARRAY_PACKAGE.dot(arr1, arr2)
+
+
 def convolve2d(arr, kernel, padding=None):
     """Performs a 2d convolution of kernel on arr
     

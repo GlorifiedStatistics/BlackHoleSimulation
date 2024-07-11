@@ -4,7 +4,8 @@ import numpy as np
 from timeit import default_timer
 from src.utils import make_RGBA
 from src.world import World
-from src.camera import Camera, ConwaysGOLCamera
+from src.camera import ConwaysGOLCamera, RayTracingCamera
+from src.objects import Sphere
 
 # Use only numpy for the display pixels
 ar.set_array_package('numpy')
@@ -17,14 +18,19 @@ WINDOW_HEIGHT = 1000
 screen = pygame.display.set_mode([WINDOW_WIDTH, WINDOW_HEIGHT])
 
 # Set up our world/camera
-ws = 200
-init_state = ar.cast(ar.random((ws, ws)) < 0.4, int)
-cameras = [ConwaysGOLCamera(init_state, array_package='cupy')]
-world = World().add_objects(*cameras)
+#ws = 200
+#init_state = ar.cast(ar.random((ws, ws)) < 0.4, int)
+#cameras = [ConwaysGOLCamera(init_state, array_package='cupy')]
+#world = World()
+
+objects = [Sphere((0, 0, 4), radius=2)]
+world = World().add_objects(*objects)
+cameras = [RayTracingCamera(focal_length=1, viewport_width=2)]
+
 pixels = np.full([WINDOW_WIDTH, WINDOW_HEIGHT], make_RGBA(0, 0, 255, 255), dtype='uint32')
 
 # Handle time between updates
-print_timings = False
+print_timings = True
 last_time = default_timer()
 
 running = True

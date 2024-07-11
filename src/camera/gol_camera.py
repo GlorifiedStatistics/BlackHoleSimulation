@@ -1,48 +1,9 @@
-"""Camera class to be placed in a world"""
 from timeit import default_timer
-from . import arrays as ar
-from .utils import make_RGBA, draw_rect
-from .objects import WorldObject
-from typing_extensions import Self, Optional
+from .. import arrays as ar
+from ..utils import make_RGBA
 
 
-class Camera(WorldObject):
-    """Camera class that can be placed in a world to look at things
-    
-
-    Parameters
-    ----------
-    position: `Optional[tuple[float, float, float]]`
-        Optional initial position of the camera in 3D space. If not passed, defaults to (0, 0, 0)
-    """
-    def __init__(self, position: Optional[tuple[float, float, float]] = None):
-        super().__init__()
-        self.set_position(*position)
-
-    def draw(self, screen, world):
-        """Draws what the camera currently sees to the given screen"""
-        pass
-
-
-class RayTracingCamera(Camera):
-    """Camera that performs ray tracing
-    
-    Parameters
-    ----------
-    position: `Optional[tuple[float, float, float]]`
-        Optional initial position of the camera in 3D space. If not passed, defaults to (0, 0, 0)
-    """
-    def __init__(self, position: Optional[tuple[float, float, float]] = None):
-        super().__init__()
-        self.set_position(*position)
-
-    def draw(self, screen, world):
-        """Draws what the camera currently sees to the given screen"""
-        pass
-
-
-
-class ConwaysGOLCamera(Camera):
+class ConwaysGOLCamera:
     """Plays conway's game of life
     
     Parameters
@@ -59,11 +20,8 @@ class ConwaysGOLCamera(Camera):
             self.last_update = default_timer()
             self.screen_drawn = False
     
-    def update(self, world, delta, force_update=False):
+    def update(self):
         with ar.array_package_context(self.array_package):
-            # Only update if either we are forcing it, or enough time has passed and we have drawn the previous updates
-            if not force_update and default_timer() - self.last_update < self.update_time and self.cell_updates is None:
-                return
             self.last_update = default_timer()
             
             # Count values in neighborhood and determine new state
@@ -82,7 +40,11 @@ class ConwaysGOLCamera(Camera):
             self.curr_state = new_state
     
     @ar.array_package_decorator('numpy')
-    def draw(self, screen, world):
+    def draw(self, screen, world, force_update=False):
+        # Only update if either we are forcing it, or enough time has passed and we have drawn the previous updates
+        if force_update or (default_timer() - self.last_update > self.update_time):
+            self.update()
+        
         line_thickness = 0
         background_color = make_RGBA(20, 20, 20, 255)
         line_color = make_RGBA(230, 230, 230, 255)
